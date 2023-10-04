@@ -50,20 +50,17 @@ class LowPassFilter:
             self.buffered_data = self.buffered_data[-self.buffer_size//2:]  # Keep the last half of the buffered data for the next filtering iteration
 
         return filtered_data[-1]
-    
-    def reset(self):
-        self.buffered_data = np.empty((0, self.dims))
 
-
-low_pass_filter_xy = LowPassFilter(cutoff_frequency=20, sampling_frequency=60.0, dims=2)
-low_pass_filter_z = LowPassFilter(cutoff_frequency=20, sampling_frequency=60.0, dims=1)
-heading_low_pass_filter = LowPassFilter(cutoff_frequency=20, sampling_frequency=60.0, dims=1)
 
 class KalmanFilter:
     def __init__(self):
         state_dim = 9
         measurement_dim = 6
         dt = 0.1
+
+        self.low_pass_filter_xy = LowPassFilter(cutoff_frequency=20, sampling_frequency=60.0, dims=2)
+        self.low_pass_filter_z = LowPassFilter(cutoff_frequency=20, sampling_frequency=60.0, dims=1)
+        self.heading_low_pass_filter = LowPassFilter(cutoff_frequency=20, sampling_frequency=60.0, dims=1)
 
         self.kalman = cv.KalmanFilter(state_dim, measurement_dim)
         self.kalman.transitionMatrix = np.array([[1, 0, 0, dt, 0, 0, 0.5*dt**2, 0, 0],
@@ -118,25 +115,18 @@ class KalmanFilter:
         predicted_state = self.kalman.statePre[:6].T[0]  # Predicted 3D location
 
         heading = possible_new_objects[closest_match_i]["heading"]
-        heading = heading_low_pass_filter.filter(heading)[0]
+        heading = self.heading_low_pass_filter.filter(heading)[0]
         # heading, self.z = signal.lfilter(self.b, 1, [heading], zi=self.z)
 
         vel = predicted_state[3:6].copy()
-        vel[0:2] = low_pass_filter_xy.filter(vel[0:2])
-        vel[2] = low_pass_filter_z.filter(vel[2])[0]
+        vel[0:2] = self.low_pass_filter_xy.filter(vel[0:2])
+        vel[2] = self.low_pass_filter_z.filter(vel[2])[0]
         
         return {
             "pos": predicted_state[:3],
             "vel": vel,
             "heading": heading
         }
-    
-    def reset(self):
-        self.kalman.statePost = np.zeros((9,1), dtype=np.float32)
-        self.prev_measurement_time = time.time()-20
-        self.prev_pos = np.array([0,0,0])
-    
-kalman_filter = KalmanFilter()
 
 @Singleton
 class Cameras:
@@ -160,6 +150,8 @@ class Cameras:
         self.to_world_coords_matrix = None
 
         self.drone_armed = False
+
+        self.kalman_filter = KalmanFilter()
 
         global cameras_init
         cameras_init = True
@@ -213,7 +205,7 @@ class Cameras:
                     }
                     if self.is_locating_objects:
                         objects = locate_objects(object_points, errors)
-                        filtered_object = kalman_filter.predict_location(objects)
+                        filtered_object = self.kalman_filter.predict_location(objects)
 
                         if len(filtered_object["pos"]) != 0:
                             if self.drone_armed:
@@ -275,10 +267,7 @@ class Cameras:
         self.is_capturing_points = True
         self.is_triangulating_points = True
         self.camera_poses = camera_poses
-        low_pass_filter_xy.reset()
-        low_pass_filter_z.reset()
-        heading_low_pass_filter.reset()
-        kalman_filter.reset()
+        self.kalman_filter = KalmanFilter()
 
     def stop_trangulating_points(self):
         self.is_capturing_points = False
