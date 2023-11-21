@@ -1,5 +1,9 @@
 # Mocap Drones
 
+
+https://www.youtube.com/watch?v=0ql20JKrscQ
+
+
 ### A general purpose motion capture system built from the ground up, used to autonomously fly multiple drones indoors
 
 ## Runing the code
